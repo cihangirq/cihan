@@ -15,32 +15,23 @@ import threading
 import urllib.parse
 
 # --- AYARLAR ---
-# Lütfen bu API anahtarını Google AI Studio'dan aldığınız kendi GİZLİ anahtarınızla değiştirin.
-# Bu anahtarı kimseyle paylaşmayın.
 GEMINI_API_KEY = "AIzaSyATsBYWQ051Mnen7lMFr6sDIEUahcnQ2FE"
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Gemini'den yapılandırılmış JSON yanıtı almak için özel ayarlar
 generation_config = {
     "response_mime_type": "application/json",
 }
-# Eylem belirleme için JSON model
 action_model = genai.GenerativeModel('gemini-1.5-flash', generation_config=generation_config)
-# Genel sohbet için standart metin modeli
 chat_model = genai.GenerativeModel('gemini-1.5-flash')
 
-# Pygame modüllerini başlatıyoruz
 pygame.init()
 pygame.mixer.init()
 
-# --- Konfigürasyon Dosyaları ---
 KOMUTLAR_DOSYASI = "ogrenilmis_eylemler.json"
 
 konusma_aktif = True
 r = sr.Recognizer()
 r.pause_threshold = 2.0
-
-# --- YARDIMCI FONKSİYONLAR ---
 
 def eylemleri_yukle():
     try:
@@ -58,7 +49,7 @@ def eylem_kaydet(sesli_istek, eylem_detaylari):
 
 def find_best_match(user_command, commands):
     best_match = None
-    highest_score = 0.7
+    highest_score = 0.8
     if not user_command: return None
     for cmd_key in commands.keys():
         score = difflib.SequenceMatcher(None, user_command, cmd_key).ratio()
@@ -67,125 +58,45 @@ def find_best_match(user_command, commands):
             best_match = cmd_key
     return best_match
 
-# --- EYLEM İŞLEYİCİLERİ (ASİSTANIN "BEYNİ") ---
+def ping_ozet(adres):
+    try:
+        print(f"Pinge başlandı: {adres}")
+        if platform.system() == "Windows":
+            ping_cmd = ["ping", "-n", "4", adres]
+        else:
+            ping_cmd = ["ping", "-c", "4", adres]
+        sonuc = subprocess.run(ping_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        cikti = sonuc.stdout + sonuc.stderr
+        # Basit özet
+        kayip = re.search(r"(\d+)%.*kayb", cikti) or re.search(r"(\d+)% loss", cikti)
+        ort = re.search(r"Average = (\d+)", cikti) or re.search(r"avg(?:/|=)([\d.]+)", cikti)
+        if kayip:
+            kayip_orani = kayip.group(1)
+        else:
+            kayip_orani = "?"
+        if ort:
+            ortalama = ort.group(1)
+        else:
+            ortalama = "?"
+        ozet = f"Ping sonucu: kayıp oranı %{kayip_orani}, ortalama süre {ortalama} ms."
+        return ozet
+    except Exception as e:
+        return f"Ping sırasında hata oluştu: {e}"
 
 def eylem_yonlendirici(eylem_detaylari, asistan_hafizasi):
     eylem = eylem_detaylari.get("eylem")
     parametreler = eylem_detaylari.get("parametreler", {})
 
-    if eylem == "klasor_olustur":
-        return klasor_olustur_eylemi(parametreler, asistan_hafizasi)
-    elif eylem == "program_calistir":
-        return program_calistir_eylemi(parametreler, asistan_hafizasi)
-    elif eylem == "bilgisayari_yeniden_baslat":
-        return yeniden_baslat_eylemi()
-    elif eylem == "son_eylemi_ac":
-        return son_eylemi_ac_eylemi(asistan_hafizasi)
-    elif eylem == "web_arama":
-        return web_arama_eylemi(parametreler, asistan_hafizasi)
-    elif eylem == "son_yaniti_tekrarla":
-        return son_yaniti_tekrarla_eylemi(asistan_hafizasi)
+    if eylem == "ping_at":
+        adres = parametreler.get("adres")
+        if not adres:
+            return False, "Ping atmak için bir adres yok."
+        ozet = ping_ozet(adres)
+        return True, ozet
+    # Diğer klasik eylemler buraya eklenebilir (örneğin web_arama, klasor_olustur...)
     else:
-        return False, f"'{eylem}' adlı bir eylemi nasıl yapacağımı bilmiyorum."
+        return False, "Bu eylemi henüz yapamıyorum."
 
-def klasor_olustur_eylemi(parametreler, asistan_hafizasi):
-    try:
-        base_path_str = parametreler.get("konum")
-        folder_name = parametreler.get("isim")
-        if not folder_name: folder_name = "Yeni Klasör"
-        if not base_path_str:
-            path = os.path.join(os.path.expanduser('~'), 'Desktop')
-        elif "masaüstü" in base_path_str.lower() or "desktop" in base_path_str.lower():
-            path = os.path.join(os.path.expanduser('~'), 'Desktop')
-        elif re.match(r'^[a-zA-Z]:', base_path_str):
-            path = base_path_str
-        else:
-            path = os.path.expanduser(base_path_str.replace("sürücüsü", ":\\").replace("sürücüsünde",":\\"))
-        if not os.path.isdir(path):
-            print(f"UYARI: '{path}' konumu anlaşılamadı, masaüstü kullanılıyor.")
-            path = os.path.join(os.path.expanduser('~'), 'Desktop')
-        full_path = os.path.join(path, folder_name)
-        final_path = full_path
-        counter = 1
-        while os.path.exists(final_path):
-            final_path = f"{full_path} ({counter})"
-            counter += 1
-        os.makedirs(final_path)
-        print(f"Başarıyla oluşturuldu: {final_path}")
-        asistan_hafizasi['son_eylem_sonucu'] = {"tip": "klasor", "yol": final_path}
-        return True, f"Klasörünüz '{os.path.basename(final_path)}' adıyla oluşturuldu."
-    except Exception as e:
-        print(f"Klasör oluşturma hatası: {e}")
-        return False, "Klasörü oluştururken bir sorunla karşılaştım."
-
-def program_calistir_eylemi(parametreler, asistan_hafizasi):
-    try:
-        program_adi = parametreler.get("program_adi")
-        if not program_adi:
-            return False, "Çalıştırılacak bir program adı belirtilmedi."
-        print(f"'{program_adi}' çalıştırılıyor...")
-        if platform.system() == "Windows":
-            subprocess.Popen(f'start "" "{program_adi}"', shell=True)
-        else:
-            subprocess.Popen(program_adi, shell=True)
-        asistan_hafizasi['son_eylem_sonucu'] = {"tip": "program", "isim": program_adi}
-        if program_adi.startswith("http"):
-            try:
-                parsed_url = urllib.parse.urlparse(program_adi)
-                query_params = urllib.parse.parse_qs(parsed_url.query)
-                sorgu = query_params.get('q', [None])[0]
-                if sorgu:
-                    return True, f"'{sorgu}' için arama yapılıyor."
-                else:
-                    return True, "İsteğiniz tarayıcıda açılıyor."
-            except:
-                return True, "İsteğiniz tarayıcıda açılıyor."
-        else:
-            return True, f"'{program_adi}' başlatılıyor."
-    except Exception as e:
-        print(f"Program çalıştırma hatası: {e}")
-        return False, "Programı çalıştırırken bir sorun oluştu."
-
-def yeniden_baslat_eylemi():
-    print("Bilgisayar yeniden başlatılıyor...")
-    sistem = platform.system()
-    try:
-        if sistem == "Windows": os.system("shutdown /r /t 1")
-        elif sistem in ["Linux", "macOS"]: os.system("sudo reboot")
-        return True, "Bilgisayar yeniden başlatılıyor."
-    except Exception as e:
-        return False, "Yeniden başlatma komutunu çalıştıramadım."
-
-def son_eylemi_ac_eylemi(asistan_hafizasi):
-    son_eylem = asistan_hafizasi.get('son_eylem_sonucu')
-    if not son_eylem:
-        return False, "Hafızamda açabileceğim bir şey yok."
-    if son_eylem.get("tip") == "klasor":
-        yol = son_eylem.get("yol")
-        return program_calistir_eylemi({"program_adi": yol}, asistan_hafizasi)
-    else:
-        return False, "En son yaptığım eylemin sonucunu açamam."
-
-def web_arama_eylemi(parametreler, asistan_hafizasi):
-    try:
-        sorgu = parametreler.get("sorgu")
-        if not sorgu:
-            return False, "Arama yapmak için bir terim belirtmediniz."
-        url_sorgu = urllib.parse.quote_plus(sorgu)
-        arama_url = f"https://www.google.com/search?q={url_sorgu}"
-        return program_calistir_eylemi({"program_adi": arama_url}, asistan_hafizasi)
-    except Exception as e:
-        print(f"Web arama hatası: {e}")
-        return False, "Arama yaparken bir sorun oluştu."
-
-def son_yaniti_tekrarla_eylemi(asistan_hafizasi):
-    son_yanit_metni = asistan_hafizasi.get('son_sesli_yanit')
-    if son_yanit_metni:
-        return True, son_yanit_metni
-    else:
-        return False, "Henüz tekrar edecek bir şey söylemedim."
-
-# --- SESLİ YANIT FONKSİYONU ---
 def sesli_yanit(text, asistan_hafizasi):
     asistan_hafizasi['son_sesli_yanit'] = text
     def play_and_delete(filename):
@@ -214,19 +125,19 @@ def sesli_yanit(text, asistan_hafizasi):
         print(f"Sesli yanıt sırasında bir hata oluştu: {e}")
         return None
 
-# --- ANA DÖNGÜ ---
 def ana_dongu():
     global konusma_aktif
     ogrenilmis_eylemler = eylemleri_yukle()
     asistan_hafizasi = {}
+    ogren_modu = False
+    yeni_komut = None
 
-    # Otomatik ilk mikrofonu seç
     try:
         mic_list = sr.Microphone.list_microphone_names()
         if not mic_list:
             print("Hiç mikrofon bulunamadı! Program sonlandırılıyor.")
             return
-        mic_index = 0  # ilk mikrofonu seç
+        mic_index = 0
     except Exception as e:
         print(f"KRİTİK HATA: Mikrofonlar listelenemedi: {e}")
         return
@@ -243,6 +154,31 @@ def ana_dongu():
                     audio = r.listen(source)
                     text = r.recognize_google(audio, language="tr-TR").lower()
                     print(f"Anlaşılan: '{text}'")
+
+                    if ogren_modu:
+                        if not yeni_komut:
+                            # 1. adım: Öğrenilecek komutı al
+                            yeni_komut = text
+                            playback_thread = sesli_yanit(f"'{text}' için hangi aksiyonu yapmalıyım? Örneğin: 192.168.1.1'e ping at.", asistan_hafizasi)
+                            if playback_thread: playback_thread.join()
+                            continue
+                        else:
+                            # 2. adım: Aksiyon bilgisini al ve kaydet
+                            aksiyon_cumlesi = text
+                            # Eğer cümle 'X ping at' şeklindeyse otomatik algıla
+                            ping_match = re.match(r"([\d\.]+)'?e? ping at", aksiyon_cumlesi)
+                            if ping_match:
+                                adres = ping_match.group(1)
+                                yeni_eylem = {"eylem": "ping_at", "parametreler": {"adres": adres}}
+                                eylem_kaydet(yeni_komut, yeni_eylem)
+                                playback_thread = sesli_yanit(f"'{yeni_komut}' komutunu '{adres}' adresine ping atacak şekilde kaydettim.", asistan_hafizasi)
+                            else:
+                                playback_thread = sesli_yanit("Şu an sadece ping atma eylemlerini otomatik olarak öğrenebiliyorum.", asistan_hafizasi)
+                            ogren_modu = False
+                            yeni_komut = None
+                            if playback_thread: playback_thread.join()
+                            continue
+
                     if text == "çıkış":
                         playback_thread = sesli_yanit("Görüşmek üzere.", asistan_hafizasi)
                         if playback_thread: playback_thread.join()
@@ -255,6 +191,13 @@ def ana_dongu():
                         playback_thread = sesli_yanit("Tekrar konuşuyorum.", asistan_hafizasi)
                         if playback_thread: playback_thread.join()
                         continue
+                    elif text == "öğren":
+                        ogren_modu = True
+                        yeni_komut = None
+                        playback_thread = sesli_yanit("Ne öğreneyim?", asistan_hafizasi)
+                        if playback_thread: playback_thread.join()
+                        continue
+
                     matched_command = find_best_match(text, ogrenilmis_eylemler)
                     if matched_command:
                         eylem_detaylari = ogrenilmis_eylemler[matched_command]
@@ -262,33 +205,16 @@ def ana_dongu():
                         playback_thread = sesli_yanit(mesaj, asistan_hafizasi)
                         if playback_thread: playback_thread.join()
                         continue
-                    # Gemini'ye gönderilen prompt artık tüm eylemleri ve kuralları kapsıyor.
-                    prompt = (f"Kullanıcının isteği: '{text}'. Bu isteği analiz et ve aşağıdaki eylemlerden hangisine uyduğunu JSON formatında belirt: "
-                              f"'klasor_olustur', 'program_calistir', 'bilgisayari_yeniden_baslat', 'son_eylemi_ac', 'web_arama', 'son_yaniti_tekrarla', 'bilinmeyen_eylem'. "
-                              f"JSON objesi bir 'eylem' anahtarı ve 'parametreler' adlı bir alt obje içermeli. Parametreleri istekten çıkarım yap. "
-                              f"KURALLAR: "
-                              f"1. Eğer 'klasor_olustur' eylemi isteniyorsa ama isim belirtilmemişse, 'isim' değerini 'Yeni Klasör' yap. Konum belirtilmemişse 'konum' değerini 'masaustu' yap. "
-                              f"2. Eğer istek, web'de bir arama ise (örn: 'internette bak', 'araştır'), 'eylem' değerini 'web_arama' yap ve 'sorgu' parametresine aranacak kelimeleri ekle. "
-                              f"3. Eğer istek 'tekrar et', 'ne dedin' gibi bir anlam taşıyorsa, 'eylem' değerini 'son_yaniti_tekrarla' yap. "
-                              f"4. Eğer eylem anlaşılamıyorsa 'eylem' değerini 'bilinmeyen_eylem' yap. "
-                              f"ÖRNEKLER: "
-                              f"İstek: 'google'da bugünün hava durumunu araştır' -> {{\"eylem\": \"web_arama\", \"parametreler\": {{\"sorgu\": \"bugünün hava durumu\"}}}} "
-                              f"İstek: 'son söylediğini tekrarla' -> {{\"eylem\": \"son_yaniti_tekrarla\", \"parametreler\": {{}}}}")
-                    response = action_model.generate_content(prompt)
-                    eylem_detaylari = json.loads(response.text)
-                    eylem = eylem_detaylari.get("eylem")
-                    if eylem != "bilinmeyen_eylem":
-                        basarili, mesaj = eylem_yonlendirici(eylem_detaylari, asistan_hafizasi)
-                        playback_thread = sesli_yanit(mesaj, asistan_hafizasi)
-                        if playback_thread: playback_thread.join()
-                    else:
-                        context_prompt = (f"Sen, bir Türk kullanıcının bilgisayarında çalışan kişisel bir sesli asistansın. "
-                                          f"Sana sorulan sorulara her zaman Türkçe, kısa, doğrudan ve sohbet havasında yanıt ver. "
-                                          f"Liste veya madde imleri kullanmaktan kaçın. "
-                                          f"Kullanıcının sorusu şu: '{text}'")
-                        sohbet_yaniti = chat_model.generate_content(context_prompt)
-                        playback_thread = sesli_yanit(sohbet_yaniti.text, asistan_hafizasi)
-                        if playback_thread: playback_thread.join()
+
+                    # Diğer klasik asistan cevapları
+                    context_prompt = (f"Sen, bir Türk kullanıcının bilgisayarında çalışan kişisel bir sesli asistansın. "
+                                      f"Sana sorulan sorulara her zaman Türkçe, kısa, doğrudan ve sohbet havasında yanıt ver. "
+                                      f"Liste veya madde imleri kullanmaktan kaçın. "
+                                      f"Kullanıcının sorusu şu: '{text}'")
+                    sohbet_yaniti = chat_model.generate_content(context_prompt)
+                    playback_thread = sesli_yanit(sohbet_yaniti.text, asistan_hafizasi)
+                    if playback_thread: playback_thread.join()
+
                 except sr.UnknownValueError:
                     print("Anlayamadım.")
                 except sr.RequestError as e:
