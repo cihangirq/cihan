@@ -41,13 +41,11 @@ AYARLAR_DOSYASI = "ayarlar.json"
 
 konusma_aktif = True
 r = sr.Recognizer()
-# DÜZELTME: Kullanıcının cümle ortasında duraksaması için tanınan süreyi artırdık.
 r.pause_threshold = 2.0
 
 # --- YARDIMCI FONKSİYONLAR ---
 
 def ayarlari_yukle():
-    """Kaydedilmiş ayarları (örn: mikrofon indeksi) JSON dosyasından yükler."""
     try:
         with open(AYARLAR_DOSYASI, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -55,7 +53,6 @@ def ayarlari_yukle():
         return {}
 
 def ayar_kaydet(ayarlar):
-    """Ayarları JSON dosyasına kaydeder."""
     with open(AYARLAR_DOSYASI, 'w', encoding='utf-8') as f:
         json.dump(ayarlar, f, indent=4)
 
@@ -65,13 +62,22 @@ def mikrofon_sec_ve_kaydet():
         mic_list = sr.Microphone.list_microphone_names()
     except Exception as e:
         print(f"HATA: Mikrofonlar listelenemedi. PyAudio kurulumunuzu kontrol edin. Hata: {e}")
+        # GUI ile de hata göster
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Mikrofon Hatası", f"Mikrofonlar listelenemedi.\n\nPyAudio kurulumunuzu kontrol edin.\n\nHata: {e}")
+        root.destroy()
         return None
 
     if not mic_list:
         print("HATA: Hiç mikrofon bulunamadı.")
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Mikrofon Hatası", "Bilgisayarınızda hiç mikrofon bulunamadı!")
+        root.destroy()
         return None
 
-    selected_index = [None]  # Değiştirilebilir tipte tutmak için liste kullandık
+    selected_index = [None]
 
     def on_select():
         idx = lb.curselection()
@@ -103,7 +109,6 @@ def mikrofon_sec_ve_kaydet():
         return None
 
 def eylemleri_yukle():
-    """Kaydedilmiş eylemleri JSON dosyasından yükler."""
     try:
         with open(KOMUTLAR_DOSYASI, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -111,7 +116,6 @@ def eylemleri_yukle():
         return {}
 
 def eylem_kaydet(sesli_istek, eylem_detaylari):
-    """Yeni öğrenilen eylemi JSON dosyasına kaydeder."""
     ogrenilmis_eylemler = eylemleri_yukle()
     ogrenilmis_eylemler[sesli_istek] = eylem_detaylari
     with open(KOMUTLAR_DOSYASI, 'w', encoding='utf-8') as f:
@@ -119,7 +123,6 @@ def eylem_kaydet(sesli_istek, eylem_detaylari):
     print(f"'{sesli_istek}' isteği '{eylem_detaylari['eylem']}' olarak öğrenildi.")
 
 def find_best_match(user_command, commands):
-    """Kullanıcının söylediği komuta en çok benzeyen öğrenilmiş komutu bulur."""
     best_match = None
     highest_score = 0.7 
     if not user_command: return None
@@ -133,7 +136,6 @@ def find_best_match(user_command, commands):
 # --- EYLEM İŞLEYİCİLERİ (ASİSTANIN "BEYNİ") ---
 
 def eylem_yonlendirici(eylem_detaylari, asistan_hafizasi):
-    """Gelen eyleme göre ilgili Python fonksiyonunu çağırır."""
     eylem = eylem_detaylari.get("eylem")
     parametreler = eylem_detaylari.get("parametreler", {})
     
@@ -153,7 +155,6 @@ def eylem_yonlendirici(eylem_detaylari, asistan_hafizasi):
         return False, f"'{eylem}' adlı bir eylemi nasıl yapacağımı bilmiyorum."
 
 def klasor_olustur_eylemi(parametreler, asistan_hafizasi):
-    """Klasör oluşturma eylemini Python'un kendi komutlarıyla akıllıca gerçekleştirir."""
     try:
         base_path_str = parametreler.get("konum")
         folder_name = parametreler.get("isim")
@@ -188,7 +189,6 @@ def klasor_olustur_eylemi(parametreler, asistan_hafizasi):
         return False, "Klasörü oluştururken bir sorunla karşılaştım."
 
 def program_calistir_eylemi(parametreler, asistan_hafizasi):
-    """Bir programı veya komutu çalıştırır."""
     try:
         program_adi = parametreler.get("program_adi")
         if not program_adi:
@@ -221,7 +221,6 @@ def program_calistir_eylemi(parametreler, asistan_hafizasi):
         return False, "Programı çalıştırırken bir sorun oluştu."
 
 def yeniden_baslat_eylemi():
-    """Bilgisayarı yeniden başlatır."""
     print("Bilgisayar yeniden başlatılıyor...")
     sistem = platform.system()
     try:
@@ -232,7 +231,6 @@ def yeniden_baslat_eylemi():
         return False, "Yeniden başlatma komutunu çalıştıramadım."
 
 def son_eylemi_ac_eylemi(asistan_hafizasi):
-    """Hafızadaki son eylem sonucunu açar."""
     son_eylem = asistan_hafizasi.get('son_eylem_sonucu')
     if not son_eylem:
         return False, "Hafızamda açabileceğim bir şey yok."
@@ -244,7 +242,6 @@ def son_eylemi_ac_eylemi(asistan_hafizasi):
         return False, "En son yaptığım eylemin sonucunu açamam."
 
 def web_arama_eylemi(parametreler, asistan_hafizasi):
-    """İnternette bir arama yapar."""
     try:
         sorgu = parametreler.get("sorgu")
         if not sorgu:
@@ -259,7 +256,6 @@ def web_arama_eylemi(parametreler, asistan_hafizasi):
         return False, "Arama yaparken bir sorun oluştu."
 
 def son_yaniti_tekrarla_eylemi(asistan_hafizasi):
-    """Hafızadaki son sesli yanıtı kullanıcıya söyler."""
     son_yanit_metni = asistan_hafizasi.get('son_sesli_yanit')
     if son_yanit_metni:
         return True, son_yanit_metni
@@ -268,14 +264,9 @@ def son_yaniti_tekrarla_eylemi(asistan_hafizasi):
 
 # --- SESLİ YANIT FONKSİYONU ---
 def sesli_yanit(text, asistan_hafizasi):
-    """
-    Verilen metni Google'ın doğal sesiyle seslendirir.
-    Yeni bir ses çalmadan önce, önceki sesi keser ve yanıtı hafızaya kaydeder.
-    """
     asistan_hafizasi['son_sesli_yanit'] = text
 
     def play_and_delete(filename):
-        """Sesi çalar ve bittikten sonra dosyayı siler."""
         try:
             pygame.mixer.music.load(filename)
             pygame.mixer.music.play()
@@ -390,9 +381,12 @@ def ana_dongu(mic_index):
 if __name__ == "__main__":
     ayarlar = ayarlari_yukle()
     mic_index = ayarlar.get('mic_index')
-    
-    if mic_index is None:
-        mic_index = mikrofon_sec_ve_kaydet()
 
-    if mic_index is not None:
-        ana_dongu(mic_index)
+    # Mikrofon seçilene kadar kullanıcıdan seçim isteniyor
+    while mic_index is None:
+        print("Mikrofon seçilmedi veya bulunamadı. Lütfen bir mikrofon seçin.")
+        mic_index = mikrofon_sec_ve_kaydet()
+        if mic_index is None:
+            time.sleep(1)  # Kullanıcıya tekrar şans ver
+
+    ana_dongu(mic_index)
