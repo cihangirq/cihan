@@ -13,6 +13,8 @@ import difflib
 import pygame 
 import threading
 import urllib.parse 
+import tkinter as tk
+from tkinter import messagebox
 
 # --- AYARLAR ---
 # Lütfen bu API anahtarını Google AI Studio'dan aldığınız kendi GİZLİ anahtarınızla değiştirin.
@@ -29,7 +31,6 @@ action_model = genai.GenerativeModel('gemini-1.5-flash', generation_config=gener
 # Genel sohbet için standart metin modeli
 chat_model = genai.GenerativeModel('gemini-1.5-flash')
 
-
 # Pygame modüllerini başlatıyoruz
 pygame.init()
 pygame.mixer.init()
@@ -40,8 +41,7 @@ AYARLAR_DOSYASI = "ayarlar.json"
 
 konusma_aktif = True
 r = sr.Recognizer()
-# DÜZELTME: Kullanıcının cümle ortasında duraksaması için tanınan süreyi
-# daha da artırarak asistanı daha sabırlı hale getiriyoruz.
+# DÜZELTME: Kullanıcının cümle ortasında duraksaması için tanınan süreyi artırdık.
 r.pause_threshold = 2.0
 
 # --- YARDIMCI FONKSİYONLAR ---
@@ -60,36 +60,47 @@ def ayar_kaydet(ayarlar):
         json.dump(ayarlar, f, indent=4)
 
 def mikrofon_sec_ve_kaydet():
-    """Kullanıcıya mikrofon listesini gösterir, bir seçim yapmasını ister ve bunu kaydeder."""
-    print("--- Sisteminizdeki Mikrofonlar ---")
+    """Kullanıcıya mikrofon listesini görsel olarak gösterir, seçim yapmasını ister ve kaydeder."""
     try:
         mic_list = sr.Microphone.list_microphone_names()
     except Exception as e:
         print(f"HATA: Mikrofonlar listelenemedi. PyAudio kurulumunuzu kontrol edin. Hata: {e}")
         return None
-        
+
     if not mic_list:
         print("HATA: Hiç mikrofon bulunamadı.")
         return None
 
-    for index, name in enumerate(mic_list):
-        print(f"Mikrofon {index}: {name}")
-    print("----------------------------------\n")
+    selected_index = [None]  # Değiştirilebilir tipte tutmak için liste kullandık
 
-    while True:
-        try:
-            mic_input = input(">>> Lütfen kullanmak istediğiniz mikrofonun numarasını girip Enter'a basın: ")
-            selected_index = int(mic_input)
-            if 0 <= selected_index < len(mic_list):
-                ayarlar = ayarlari_yukle()
-                ayarlar['mic_index'] = selected_index
-                ayar_kaydet(ayarlar)
-                print(f"'{mic_list[selected_index]}' varsayılan mikrofon olarak ayarlandı.\n")
-                return selected_index
-            else:
-                print("Hata: Geçersiz bir numara girdiniz.")
-        except ValueError:
-            print("Hata: Lütfen sadece sayı girin.")
+    def on_select():
+        idx = lb.curselection()
+        if idx:
+            selected_index[0] = idx[0]
+            root.destroy()
+        else:
+            messagebox.showerror("Seçim Hatası", "Lütfen bir mikrofon seçin.")
+
+    root = tk.Tk()
+    root.title("Mikrofon Seçiniz")
+    root.geometry("500x300")
+    tk.Label(root, text="Kullanmak istediğiniz mikrofonu seçin:", font=("Arial", 12)).pack(padx=10, pady=10)
+    lb = tk.Listbox(root, width=60, font=("Arial", 10))
+    for i, mic in enumerate(mic_list):
+        lb.insert(tk.END, f"{i}: {mic}")
+    lb.pack(padx=10, pady=5)
+    tk.Button(root, text="Seç", command=on_select, font=("Arial", 11)).pack(pady=10)
+    root.mainloop()
+
+    if selected_index[0] is not None:
+        ayarlar = ayarlari_yukle()
+        ayarlar['mic_index'] = selected_index[0]
+        ayar_kaydet(ayarlar)
+        print(f"'{mic_list[selected_index[0]]}' varsayılan mikrofon olarak ayarlandı.\n")
+        return selected_index[0]
+    else:
+        print("Mikrofon seçilmedi.")
+        return None
 
 def eylemleri_yukle():
     """Kaydedilmiş eylemleri JSON dosyasından yükler."""
@@ -156,7 +167,6 @@ def klasor_olustur_eylemi(parametreler, asistan_hafizasi):
              path = base_path_str
         else:
             path = os.path.expanduser(base_path_str.replace("sürücüsü", ":\\").replace("sürücüsünde",":\\"))
-
         if not os.path.isdir(path):
             print(f"UYARI: '{path}' konumu anlaşılamadı, masaüstü kullanılıyor.")
             path = os.path.join(os.path.expanduser('~'), 'Desktop')
@@ -256,14 +266,12 @@ def son_yaniti_tekrarla_eylemi(asistan_hafizasi):
     else:
         return False, "Henüz tekrar edecek bir şey söylemedim."
 
-
 # --- SESLİ YANIT FONKSİYONU ---
 def sesli_yanit(text, asistan_hafizasi):
     """
     Verilen metni Google'ın doğal sesiyle seslendirir.
     Yeni bir ses çalmadan önce, önceki sesi keser ve yanıtı hafızaya kaydeder.
     """
-    
     asistan_hafizasi['son_sesli_yanit'] = text
 
     def play_and_delete(filename):
@@ -296,7 +304,6 @@ def sesli_yanit(text, asistan_hafizasi):
     except Exception as e:
         print(f"Sesli yanıt sırasında bir hata oluştu: {e}")
         return None
-
 
 # --- ANA DÖNGÜ ---
 def ana_dongu(mic_index):
